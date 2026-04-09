@@ -1,156 +1,84 @@
-# nRF Connect SDK example application
+# Retained RAM and newlib Example
 
-<a href="https://github.com/nrfconnect/ncs-example-application/actions/workflows/build-using-docker.yml?query=branch%3Amain">
-  <img src="https://github.com/nrfconnect/ncs-example-application/actions/workflows/build-using-docker.yml/badge.svg?event=push">
-</a>
-<a href="https://github.com/nrfconnect/ncs-example-application/actions/workflows/docs.yml?query=branch%3Amain">
-  <img src="https://github.com/nrfconnect/ncs-example-application/actions/workflows/docs.yml/badge.svg?event=push">
-</a>
-<a href="https://nrfconnect.github.io/ncs-example-application">
-  <img alt="Documentation" src="https://img.shields.io/badge/documentation-3D578C?logo=sphinx&logoColor=white">
-</a>
-<a href="https://nrfconnect.github.io/ncs-example-application/doxygen">
-  <img alt="API Documentation" src="https://img.shields.io/badge/API-documentation-3D578C?logo=c&logoColor=white">
-</a>
+This repository is based on the
+[`retained-ram-newlib-example`](https://github.com/nrfconnect/retained-ram-newlib-example)
+template and pinned to `nRF Connect SDK v3.3.0-rc1` in
+[`west.yml`](west.yml).
 
-This repository contains an nRF Connect SDK example application. The main
-purpose of this repository is to serve as a reference on how to structure nRF Connect
-SDK based applications. Some of the features demonstrated in this example are:
+The example demonstrates the two relevant retained-RAM setups on
+`nrf54l15dk/nrf54l15/cpuapp`:
 
-- Basic [Zephyr application][app_dev] skeleton
-- [Zephyr workspace applications][workspace_app]
-- [Zephyr modules][modules]
-- [West T2 topology][west_t2]
-- [Custom boards][board_porting]
-- Custom [devicetree bindings][bindings]
-- Out-of-tree [drivers][drivers]
-- Out-of-tree libraries
-- Example CI configuration (using GitHub Actions)
-- Custom [west extension][west_ext]
-- Custom [Zephyr runner][runner_ext]
-- Doxygen and Sphinx documentation boilerplate
+- Partition Manager enabled:
+  `app/pm_static.yml` carves the top 4 KB out of `sram_primary`.
+- Partition Manager disabled:
+  `app/boards/nrf54l15dk_nrf54l15_cpuapp_no_pm.overlay` shrinks
+  `&cpuapp_sram` so the same 4 KB block is no longer part of normal SRAM.
 
-This repository is versioned together with the [nRF Connect SDK main tree][sdk-nrf]. This
-means that every time that nRF Connect SDK is tagged, this repository is tagged as well
-with the same version number, and the [manifest](west.yml) entry for `zephyr`
-will point to the corresponding nRF Connect SDK tag. For example, the `ncs-example-application`
-v2.5.0 will point to nRF Connect SDK v2.5.0. Note that the `main` branch always
-points to the development branch of nRF Connect SDK, also `main`.
+The sample also enables `newlib` with float formatting and probes `_sbrk()`
+so you can see whether the heap stops at the retained-RAM boundary.
 
-[app_dev]: https://docs.zephyrproject.org/latest/develop/application/index.html
-[workspace_app]: https://docs.zephyrproject.org/latest/develop/application/index.html#zephyr-workspace-app
-[modules]: https://docs.zephyrproject.org/latest/develop/modules.html
-[west_t2]: https://docs.zephyrproject.org/latest/develop/west/workspaces.html#west-t2
-[board_porting]: https://docs.zephyrproject.org/latest/guides/porting/board_porting.html
-[bindings]: https://docs.zephyrproject.org/latest/guides/dts/bindings.html
-[drivers]: https://docs.zephyrproject.org/latest/reference/drivers/index.html
-[sdk-nrf]: https://github.com/nrfconnect/sdk-nrf
-[west_ext]: https://docs.zephyrproject.org/latest/develop/west/extensions.html
-[runner_ext]: https://docs.zephyrproject.org/latest/develop/modules.html#external-runners
+The examples below assume this repository is used as the manifest repository in
+a west workspace and is checked out as `retained-ram-newlib-example` at the
+workspace root.
 
-## Getting started
+## west patch
 
-Before getting started, make sure you have a proper nRF Connect SDK development environment.
-Follow the official
-[Installation guide](https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/nrf/installation/install_ncs.html).
+The `newlib` fix is bundled in this repository under `zephyr/patches.yml`.
+After `west update`, apply it from the workspace root:
 
-### Initialization
-
-This section represents alternative approaches for initializing the workspace.
-
-#### Initialize workspace from scratch
-
-The first step is to initialize the workspace folder (``ncs``) where
-the ``ncs-example-application`` and all nRF Connect SDK modules will be cloned.
-Run the following commands:
-
-```shell
-# Initialize ncs for the ncs-example-application (main branch)
-west init -m https://github.com/nrfconnect/ncs-example-application --mr main ncs
-# Update nRF Connect SDK modules
-cd ncs
-west update
+```sh
+west patch -dm zephyr apply
 ```
 
-#### Add application into existing nRF Connect SDK workspace
+The patch changes default `newlib` heap sizing to use the linker-defined RAM
+end instead of `CONFIG_SRAM_SIZE`. That makes `_sbrk()` follow the actual RAM
+limit after a Partition Manager carveout.
 
-Assume you have an existing nRF Connect SDK workspace in the ``ncs`` folder. Run the following commands:
+## Build
 
-```shell
-# Navigate to the workspace folder
-cd ncs
-# Clone application repository
-git clone https://github.com/nrfconnect/ncs-example-application
-# Set manifest path to the application directory
-west config manifest.path ncs-example-application
-# Update nRF Connect SDK modules
-west update
+Partition Manager example:
+
+```sh
+source <ncs-root>/activate-nrf.sh
+cd <workspace-root>
+west build -p always -b nrf54l15dk/nrf54l15/cpuapp \
+  retained-ram-newlib-example/app -d build/pm
 ```
 
-### Building and running
+No-Partition-Manager example:
 
-To build the application, run the following command:
-
-```shell
-cd example-application
-west build -b $BOARD app
+```sh
+source <ncs-root>/activate-nrf.sh
+cd <workspace-root>
+west build -p always -b nrf54l15dk/nrf54l15/cpuapp \
+  retained-ram-newlib-example/app -d build/no-pm -- \
+  -DSB_CONFIG_PARTITION_MANAGER=n \
+  -DEXTRA_DTC_OVERLAY_FILE=boards/nrf54l15dk_nrf54l15_cpuapp_no_pm.overlay
 ```
 
-where `$BOARD` is the target board.
+## Flash
 
-You can use the `custom_plank` board found in this repository. Note that you can use
-Zephyr and nRF Connect SDK sample boards if an appropriate overlay is provided (see `app/boards`).
+PM build:
 
-A sample debug configuration is also provided. To apply it, run the following
-command:
-
-```shell
-west build -b $BOARD app -- -DEXTRA_CONF_FILE=debug.conf
+```sh
+west flash -d build/pm
 ```
 
-Once you have built the application, run the following command to flash it:
+No-PM build:
 
-```shell
-west flash
+```sh
+west flash -d build/no-pm
 ```
 
-### Testing
+## Expected output
 
-To execute Twister integration tests, run the following command:
+With the patch applied:
 
-```shell
-west twister -T tests --integration
-```
+- PM build: `_sbrk()` stops at `__kernel_ram_end`, even though
+  `CONFIG_SRAM_SIZE` still reflects full SRAM.
+- No-PM build: `_sbrk()` only stops correctly when `&cpuapp_sram` is shrunk in
+  devicetree.
 
-### Documentation
-
-A minimal documentation setup is provided for Doxygen and Sphinx. To build the
-documentation first change to the ``doc`` folder:
-
-```shell
-cd doc
-```
-
-Before continuing, check if you have Doxygen installed. It is recommended to
-use the same Doxygen version used in [CI](.github/workflows/docs.yml). To
-install Sphinx, make sure you have a Python installation in place and run:
-
-```shell
-pip install -r requirements.txt
-```
-
-API documentation (Doxygen) can be built using the following command:
-
-```shell
-doxygen
-```
-
-The output will be stored in the ``_build_doxygen`` folder. Similarly, the
-Sphinx documentation (HTML) can be built using the following command:
-
-```shell
-make html
-```
-
-The output will be stored in the ``_build_sphinx`` folder. You may check for
-other output formats other than HTML by running ``make help``.
+The application prints `_end`, `__kernel_ram_end`, the retained-RAM base, and
+the result of the boundary `_sbrk()` request so the behavior is visible on the
+UART console.

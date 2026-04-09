@@ -3,78 +3,56 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <zephyr/autoconf.h>
+#include <zephyr/devicetree.h>
 #include <zephyr/kernel.h>
-#include <zephyr/drivers/sensor.h>
-#include <zephyr/logging/log.h>
 
-#include <app/drivers/blink.h>
+#include <errno.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stddef.h>
 
-#include <app_version.h>
+#if IS_ENABLED(CONFIG_PARTITION_MANAGER_ENABLED)
+#include <pm_config.h>
+#endif
 
-LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
+#define RETAINED_REGION_NODE DT_NODELABEL(retained_region)
 
-#define BLINK_PERIOD_MS_STEP 100U
-#define BLINK_PERIOD_MS_MAX  1000U
+extern char _end[];
+extern char __kernel_ram_end[];
+extern void *sbrk(intptr_t increment);
 
 int main(void)
 {
-	int ret;
-	unsigned int period_ms = BLINK_PERIOD_MS_MAX;
-	const struct device *sensor, *blink;
-	struct sensor_value last_val = { 0 }, val;
+	char float_buf[16];
+	uintptr_t retained = DT_REG_ADDR(RETAINED_REGION_NODE);
+	size_t retained_size = DT_REG_SIZE(RETAINED_REGION_NODE);
+	uintptr_t heap_base = (uintptr_t)sbrk(0);
+	ptrdiff_t delta = (ptrdiff_t)(retained - heap_base);
+	void *ret;
+	uintptr_t cross;
 
-	printk("Zephyr Example Application %s\n", APP_VERSION_STRING);
+	snprintf(float_buf, sizeof(float_buf), "%.2f", 3.14);
 
-	sensor = DEVICE_DT_GET(DT_NODELABEL(example_sensor));
-	if (!device_is_ready(sensor)) {
-		LOG_ERR("Sensor not ready");
-		return 0;
-	}
+	printk("retained-ram-newlib example\n");
+	printk("PM=%d CONFIG_SRAM_SIZE=%d KB float=%s\n",
+	       IS_ENABLED(CONFIG_PARTITION_MANAGER_ENABLED),
+	       CONFIG_SRAM_SIZE, float_buf);
+	printk("_end=%p __kernel_ram_end=%p retained=%p size=0x%zx delta=0x%tx\n",
+	       _end, __kernel_ram_end, (void *)retained, retained_size, delta);
 
-	blink = DEVICE_DT_GET(DT_NODELABEL(blink_led));
-	if (!device_is_ready(blink)) {
-		LOG_ERR("Blink LED not ready");
-		return 0;
-	}
+#if IS_ENABLED(CONFIG_PARTITION_MANAGER_ENABLED)
+	printk("PM_SRAM_ADDRESS=%p PM_SRAM_SIZE=0x%x\n",
+	       (void *)PM_SRAM_ADDRESS, PM_SRAM_SIZE);
+#endif
 
-	ret = blink_off(blink);
-	if (ret < 0) {
-		LOG_ERR("Could not turn off LED (%d)", ret);
-		return 0;
-	}
+	errno = 0;
+	ret = sbrk(delta);
+	cross = (uintptr_t)sbrk(16);
 
-	printk("Use the sensor to change LED blinking period\n");
-
-	while (1) {
-		ret = sensor_sample_fetch(sensor);
-		if (ret < 0) {
-			LOG_ERR("Could not fetch sample (%d)", ret);
-			return 0;
-		}
-
-		ret = sensor_channel_get(sensor, SENSOR_CHAN_PROX, &val);
-		if (ret < 0) {
-			LOG_ERR("Could not get sample (%d)", ret);
-			return 0;
-		}
-
-		if ((last_val.val1 == 0) && (val.val1 == 1)) {
-			if (period_ms == 0U) {
-				period_ms = BLINK_PERIOD_MS_MAX;
-			} else {
-				period_ms -= BLINK_PERIOD_MS_STEP;
-			}
-
-			printk("Proximity detected, setting LED period to %u ms\n",
-			       period_ms);
-			blink_set_period_ms(blink, period_ms);
-		}
-
-		last_val = val;
-
-		k_sleep(K_MSEC(100));
-	}
+	printk("ret=%p cross=%p errno=%d\n", ret, (void *)cross, errno);
+	*(volatile uint32_t *)cross = 0xdeadbeef;
+	printk("wrote 0xdeadbeef to %p\n", (void *)cross);
 
 	return 0;
 }
-

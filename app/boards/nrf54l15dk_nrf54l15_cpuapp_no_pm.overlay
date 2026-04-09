@@ -1,0 +1,10 @@
+/*
+ * Copyright (c) 2026 Nordic Semiconductor ASA
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+&cpuapp_sram {
+	/* Shrink SRAM so the retained block is no longer part of general-purpose RAM. */
+	reg = <0x20000000 DT_SIZE_K(184)>;
+	ranges = <0x0 0x20000000 0x2e000>;
+};

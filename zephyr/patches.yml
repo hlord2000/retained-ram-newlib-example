@@ -1,0 +1,15 @@
+patches:
+  - path: zephyr/0001-newlib-bound-default-sbrk-to-linker-ram-end.patch
+    sha256sum: 0c45f783912f0bf341237d705957085c97845d663c5a9ccdf40eb7cf05d70f75
+    module: zephyr
+    author: Codex
+    email: codex@local
+    date: 2026-04-01
+    upstreamable: true
+    comments: |
+      Bound newlib's default _sbrk() heap limit to the linker-defined RAM
+      end symbol instead of CONFIG_SRAM_SIZE. This makes the heap follow the
+      actual SRAM boundary after Partition Manager carveouts and after
+      non-Partition-Manager devicetree SRAM shrinkage.
+      Validated locally on nrf54l15dk at zephyr revision
+      f60eaf5519b476df595c57d8a6de4f86b8f4df95.
